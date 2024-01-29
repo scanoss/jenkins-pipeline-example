@@ -1,9 +1,7 @@
 pipeline {
     parameters {
         // SCAN Variables
-        string(name: 'SCANOSS_API_URL', defaultValue:"https://osskb.org/api/scan/direct", description: 'SCANOSS URL')
-        
-        password(name: 'SCANOSS_API_TOKEN', defaultValue:"", description: 'SCANOSS API TOKEN')
+        string(name: 'SCANOSS_API_TOKEN_ID', defaultValue:"scanoss-token", description: 'The reference ID for the SCANOSS API TOKEN credential')
         
         string(name: 'SCANOSS_SBOM_IDENTIFY', defaultValue:"sbom.json", description: 'SCANOSS SBOM Identify filename')
         
@@ -45,29 +43,31 @@ pipeline {
                 }
             }
             steps {
-                
-                
-                sh '''
-                    SBOM_IDENTIFY=""
-                    if [ -f $SCANOSS_SBOM_IDENTIFY ]; then SBOM_IDENTIFY="--identify $SCANOSS_SBOM_IDENTIFY" ; fi
-                    
-                    SBOM_IGNORE=""
-                    if [ -f $SCANOSS_SBOM_IGNORE ]; then SBOM_IGNORE="--ignore $SCANOSS_SBOM_IGNORE" ; fi
-                    
-                    
-                    CUSTOM_URL=""
-                    if [ ! -z $SCANOSS_API_URL ]; then CUSTOM_URL="--apiurl $SCANOSS_API_URL" ; fi
-                    
-                    CUSTOM_TOKEN=""
-                    if [ ! -z $SCANOSS_API_TOKEN ]; then CUSTOM_TOKEN="--key $SCANOSS_API_TOKEN" ; fi
-                    
-                    
-                    scanoss-py scan $CUSTOM_URL $CUSTOM_TOKEN $SBOM_IDENTIFY $SBOM_IGNORE --output scan_results.json .
-                    
-                '''
-                
-              
-            }
+
+
+                  withCredentials([string(credentialsId: params.SCANOSS_API_TOKEN_ID , variable: 'SCANOSS_API_TOKEN')]) {
+                                      script {
+
+                                          sh '''
+
+                                            SBOM_IDENTIFY=""
+                                            if [ -f $SCANOSS_SBOM_IDENTIFY ]; then SBOM_IDENTIFY="--identify $SCANOSS_SBOM_IDENTIFY" ; fi
+
+                                            SBOM_IGNORE=""
+                                            if [ -f $SCANOSS_SBOM_IGNORE ]; then SBOM_IGNORE="--ignore $SCANOSS_SBOM_IGNORE" ; fi
+
+
+                                            CUSTOM_URL=""
+                                            if [ ! -z $SCANOSS_API_URL ]; then CUSTOM_URL="--apiurl $SCANOSS_API_URL"; else CUSTOM_URL="--apiurl https://osskb.org/api/scan/direct" ; fi
+
+                                            CUSTOM_TOKEN=""
+                                            if [ ! -z $SCANOSS_API_TOKEN ]; then CUSTOM_TOKEN="--key $SCANOSS_API_TOKEN" ; fi
+
+
+                                            scanoss-py scan $CUSTOM_URL $CUSTOM_TOKEN $SBOM_IDENTIFY $SBOM_IGNORE --output scan_results.json .
+                                            '''
+                                      }
+                                  }
         }
         stage('Process scan results') {
             agent {

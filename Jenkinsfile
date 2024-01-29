@@ -94,7 +94,7 @@ pipeline {
         }
         stage('Publish CSV Reports') {
             steps {
-                publishReport name: "Scan Results", displayType: "dual", provider: csv(id: "csv-ten", pattern: "data.csv")
+                publishReport name: "Scan Results", displayType: "dual", provider: csv(id: "report-summary", pattern: "data.csv")
             }
         }
         stage('Jira Issue'){
@@ -114,7 +114,7 @@ pipeline {
                                 project : [
                                     key: params.JIRA_PROJECT_KEY
                                 ],
-                                summary : 'Copyleft licenses detected',
+                                summary : 'Component's Copyleft licenses',
                                 description: copyLeft,
                                 issuetype: [
                                     name: 'Bug'

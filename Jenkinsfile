@@ -68,6 +68,7 @@ pipeline {
                                             '''
                                       }
                                   }
+            }
         }
         stage('Process scan results') {
             agent {

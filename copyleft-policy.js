@@ -2,10 +2,8 @@ const  fs =  require('node:fs/promises');
 
 
 async function main() {
-  console.log(__dirname);
    const scanResults =  await fs.readFile(`${__dirname}/scan_results.json`, { encoding: 'utf-8' });
    const results = JSON.parse(scanResults);
-   const filesWithCopyLeft = new Set();
    const summary = new Map();
 
    for (const [key, value] of Object.entries(results)) {
@@ -14,10 +12,12 @@ async function main() {
                 r.licenses.forEach((l)=>{
                     if (l.copyleft === 'yes') {
                         if(!summary.has(key)) {
-                          summary.set(key,{ components: 1 , copyleft:1  });
+                          summary.set(`${r.purl[0]}@${r.version}`,{  copyleft:1 , licenses: new Set().add(l.name) });
                         } 
                         else {
-                          summary.get(key).copyleft = summary.get(key).copyleft + 1; 
+                          const component = summary.get(`${r.purl[0]}@${r.version}`);
+                          component.copyleft = component.copyleft + 1;
+                          component.licenses.add(l.name);
                         }
                     }
                 });
@@ -25,20 +25,23 @@ async function main() {
         });
   }
 
+
+   summary.forEach((r)=>{
+       r.licenses = Array.from(r.licenses.values());
+   });
+
   const csv = getCSV(summary);
-  console.log(csv);
   await fs.writeFile(`${__dirname}/data.csv`,csv, { encoding: 'utf-8' });
-  let files = Array.from(filesWithCopyLeft);
-  if (files.length > 0) process.exit(3);
+  await fs.writeFile(`${__dirname}/summary.json`,JSON.stringify(Object.fromEntries(summary),null,2), { encoding: 'utf-8' });
+  let components = Array.from(summary.values());
+  if (components.length > 0) process.exit(3);
   process.exit(0);
 }
 
 function getCSV(summary){
-    let csv = 'file,components,copyleft\n';
+    let csv = 'component,name,copyleft\n';
     summary.forEach((value, key) => {
-        console.log(key);
-        console.log(value);
-       csv += `${key},${value.components},${value.copyleft}\n`;
+       csv += `${key},1,${value.copyleft}\n`;
     });
     return csv;
 }

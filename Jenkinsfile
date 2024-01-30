@@ -8,16 +8,13 @@ pipeline {
         string(name: 'SCANOSS_SBOM_IGNORE', defaultValue:"sbom-ignore.json", description: 'SCANOSS SBOM Ignore filename')
         
         // JIRA Variables
-        string(name: 'JIRA_URL', defaultValue:"" , description: 'Jira URL')
+        string(name: 'JIRA_URL', defaultValue:"https://scanoss.atlassian.net/" , description: 'Jira URL')
         
         string(name: 'JIRA_PROJECT_KEY', defaultValue:"TESTPROJ" , description: 'Jira Project Key')
-        
-        // Policy Check Script
-        text(name: 'POLICY_SCRIPT', defaultValue: '', description: 'Enter Policy Evaluation Script')
                 
-        booleanParam(name: 'CREATE_JIRA_ISSUE', defaultValue: false, description: 'Enable Jira reporting')
+        booleanParam(name: 'CREATE_JIRA_ISSUE', defaultValue: true, description: 'Enable Jira reporting')
         
-        booleanParam(name: 'ABORT_ON_POLICY_CHECK', defaultValue: false, description: 'Abort Pipeline on Policy exit code different to 0')
+        booleanParam(name: 'ABORT_ON_POLICY_FAILURE', defaultValue: false, description: 'Abort Pipeline on pipeline Failure')
         
     }
     agent any
@@ -25,10 +22,24 @@ pipeline {
         stage('Git Checkout') {
             steps {
                 script {
-                    git branch: 'main',
-                        credentialsId: 'gh-token',
-                        url: 'https://github.com/scanoss/integration-test'
+                    dir('repository') {
+                        git branch: 'main',
+                            credentialsId: 'gh-token',
+                            url: 'https://github.com/scanoss/integration-test'
+                    }
                         
+                }
+            }
+        }
+        stage('Policy setup') {
+            steps {
+                //TODO: Remove credential when policies are public
+                withCredentials([string(credentialsId: 'policy-token' , variable: 'SCANOSS_POLICY_TOKEN')]) {
+                    script {
+                        def command = 'curl -H "Authorization: Bearer $SCANOSS_POLICY_TOKEN" -L -o policy_check_script.js https://raw.githubusercontent.com/scanoss/jenkins-pipeline-example/main/copyleft-policy.js'
+                        echo command
+                        def response = sh(script: command, returnStdout: true).trim() 
+                    }
                 }
             }
         }
@@ -44,31 +55,32 @@ pipeline {
                 }
             }
             steps {
+                
+                withCredentials([string(credentialsId: params.SCANOSS_API_TOKEN_ID , variable: 'SCANOSS_API_TOKEN')]) {
+                    dir('repository') {
+                        script {
+
+                            sh '''
+
+                            SBOM_IDENTIFY=""
+                            if [ -f $SCANOSS_SBOM_IDENTIFY ]; then SBOM_IDENTIFY="--identify $SCANOSS_SBOM_IDENTIFY" ; fi
+
+                            SBOM_IGNORE=""
+                            if [ -f $SCANOSS_SBOM_IGNORE ]; then SBOM_IGNORE="--ignore $SCANOSS_SBOM_IGNORE" ; fi
 
 
-                  withCredentials([string(credentialsId: params.SCANOSS_API_TOKEN_ID , variable: 'SCANOSS_API_TOKEN')]) {
-                                      script {
+                            CUSTOM_URL=""
+                            if [ ! -z $SCANOSS_API_URL ]; then CUSTOM_URL="--apiurl $SCANOSS_API_URL"; else CUSTOM_URL="--apiurl https://osskb.org/api/scan/direct" ; fi
 
-                                          sh '''
-
-                                            SBOM_IDENTIFY=""
-                                            if [ -f $SCANOSS_SBOM_IDENTIFY ]; then SBOM_IDENTIFY="--identify $SCANOSS_SBOM_IDENTIFY" ; fi
-
-                                            SBOM_IGNORE=""
-                                            if [ -f $SCANOSS_SBOM_IGNORE ]; then SBOM_IGNORE="--ignore $SCANOSS_SBOM_IGNORE" ; fi
+                            CUSTOM_TOKEN=""
+                            if [ ! -z $SCANOSS_API_TOKEN ]; then CUSTOM_TOKEN="--key $SCANOSS_API_TOKEN" ; fi
 
 
-                                            CUSTOM_URL=""
-                                            if [ ! -z $SCANOSS_API_URL ]; then CUSTOM_URL="--apiurl $SCANOSS_API_URL"; else CUSTOM_URL="--apiurl https://osskb.org/api/scan/direct" ; fi
-
-                                            CUSTOM_TOKEN=""
-                                            if [ ! -z $SCANOSS_API_TOKEN ]; then CUSTOM_TOKEN="--key $SCANOSS_API_TOKEN" ; fi
-
-
-                                            scanoss-py scan $CUSTOM_URL $CUSTOM_TOKEN $SBOM_IDENTIFY $SBOM_IGNORE --output scanoss-results.json .
-                                            '''
-                                      }
-                                  }
+                            scanoss-py scan $CUSTOM_URL $CUSTOM_TOKEN $SBOM_IDENTIFY $SBOM_IGNORE --output ../scanoss-results.json .
+                            '''
+                        }
+                    }
+                }
             }
         }
         stage('Upload Artifacts') {
@@ -84,25 +96,23 @@ pipeline {
                      reuseNode true
                 }
             }
-            steps {
+            steps { 
                 script {
-                    try{
-                        sh 'echo $POLICY_SCRIPT > index.js'
+                    try{                            
                         check_result = sh(
                                 returnStdout: true,
-                                script: 'node index.js'
+                                script: 'node policy_check_script.js'
                             )
-                            if (params.ABORT_ON_POLICY_CHECK && check_result != 0) {
-                                currentBuild.result = "FAILURE"
-                            }
+                        if (params.ABORT_ON_POLICY_FAILURE && check_result != 0) {
+                            currentBuild.result = "FAILURE"
+                        }
                     }catch(e){
                         echo e.getMessage()
-                        if (params.ABORT_ON_POLICY_CHECK) {
+                        if (params.ABORT_ON_POLICY_FAILURE) {
                             currentBuild.result = "FAILURE"
                         }                
                     }
                 }
-              
             }
         }
         stage('Publish CSV Reports') {
@@ -137,7 +147,6 @@ pipeline {
     
                         def jsonString = groovy.json.JsonOutput.toJson(JSON_PAYLOAD)
                         
-                            
                         createJiraIssue(PASSWORD, USERNAME, params.JIRA_URL, jsonString)
                     }
               }
@@ -152,17 +161,12 @@ def createJiraIssue(jiraToken, jiraUsername, jiraAPIEndpoint, payload) {
     env.TOKEN = jiraToken
     env.USER = jiraUsername
     env.JIRA_ENDPOINT_URL = jiraAPIEndpoint + '/rest/api/2/issue/'
-    
-    echo env.URL
-
-
     env.PAYLOAD = payload
 
     try {
         def command = """
             curl -u '${USER}:${TOKEN}' -X POST --data '${PAYLOAD}' -H 'Content-Type: application/json' '${JIRA_ENDPOINT_URL}' 
         """
-        echo command
 
         def response = sh(script: command, returnStdout: true).trim()
         echo "Response: ${response}"

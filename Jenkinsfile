@@ -36,9 +36,9 @@ pipeline {
                 //TODO: Remove credential when policies are public
                 withCredentials([string(credentialsId: 'policy-token' , variable: 'SCANOSS_POLICY_TOKEN')]) {
                     script {
-                        def command = 'curl -H "Authorization: Bearer $SCANOSS_POLICY_TOKEN" -L -o policy_check_script.js https://raw.githubusercontent.com/scanoss/jenkins-pipeline-example/main/copyleft-policy.js'
+                        def command = 'curl -H "Authorization: Bearer $SCANOSS_POLICY_TOKEN" --fail -L -o policy_check_script.js https://raw.githubusercontent.com/scanoss/jenkins-pipeline-example/main/copyleft-policy.js'
                         echo command
-                        def response = sh(script: command, returnStdout: true).trim() 
+                        def response = sh(script: command, returnStdout: true).trim()
                     }
                 }
             }

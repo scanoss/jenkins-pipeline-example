@@ -66,7 +66,7 @@ pipeline {
                                             if [ ! -z $SCANOSS_API_TOKEN ]; then CUSTOM_TOKEN="--key $SCANOSS_API_TOKEN" ; fi
 
 
-                                            scanoss-py scan $CUSTOM_URL $CUSTOM_TOKEN $SBOM_IDENTIFY $SBOM_IGNORE --output scan_results.json .
+                                            scanoss-py scan $CUSTOM_URL $CUSTOM_TOKEN $SBOM_IDENTIFY $SBOM_IGNORE --output scanoss-results.json .
                                             '''
                                       }
                                   }
@@ -119,16 +119,16 @@ pipeline {
               withCredentials([usernamePassword(credentialsId: 'jira-token',usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
                     script {
                        
-                    
                         def copyLeft = sh(script: "tail -n +2 data.csv | cut -d',' -f1", returnStdout: true)
                         
+                        copyLeft = copyLeft +  "\n${BUILD_URL}"
                             
                         def JSON_PAYLOAD =  [
                              fields : [
                                 project : [
                                     key: params.JIRA_PROJECT_KEY
                                 ],
-                                summary : 'Component's Copyleft licenses',
+                                summary : 'Components with Copyleft licenses found',
                                 description: copyLeft,
                                 issuetype: [
                                     name: 'Bug'
@@ -161,7 +161,7 @@ def createJiraIssue(jiraToken, jiraUsername, jiraAPIEndpoint, payload) {
 
     try {
         def command = """
-            curl -vvv -u '${USER}:${TOKEN}' -X POST --data '${PAYLOAD}' -H 'Content-Type: application/json' '${JIRA_ENDPOINT_URL}' 
+            curl -u '${USER}:${TOKEN}' -X POST --data '${PAYLOAD}' -H 'Content-Type: application/json' '${JIRA_ENDPOINT_URL}' 
         """
         echo command
 

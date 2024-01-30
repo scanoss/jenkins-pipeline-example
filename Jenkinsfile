@@ -17,6 +17,8 @@ pipeline {
                 
         booleanParam(name: 'CREATE_JIRA_ISSUE', defaultValue: false, description: 'Enable Jira reporting')
         
+        booleanParam(name: 'ABORT_ON_POLICY_FAILURE', defaultValue: false, description: 'Abort Pipeline on pipeline Failure')
+        
         
     }
     agent any
@@ -85,15 +87,21 @@ pipeline {
             }
             steps {
                 script {
-                try{
-                   sh 'echo $POLICY_SCRIPT > index.js'
-                   sh 'node index.js'
-                   sh 'if [ $? -eq "0"  ] ; then echo "SUCCESS" ; else echo "FAILURE"; fi'
-                   currentBuild.result = 'SUCCESS'
-                }catch(e){
-                     echo e.getMessage()
-                     //currentBuild.result = 'FAILURE'
-                }
+                    try{
+                        sh 'echo $POLICY_SCRIPT > index.js'
+                        check_result = sh(
+                                returnStdout: true,
+                                script: 'node index.js'
+                            )
+                            if (params.ABORT_ON_POLICY_FAILURE && check_result != 0) {
+                                currentBuild.result = "FAILURE"
+                            }
+                    }catch(e){
+                        echo e.getMessage()
+                        if (params.ABORT_ON_POLICY_FAILURE) {
+                            currentBuild.result = "FAILURE"
+                        }                
+                    }
                 }
               
             }

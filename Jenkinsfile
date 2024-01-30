@@ -99,11 +99,11 @@ pipeline {
             steps { 
                 script {
                     try{                            
-                        check_result = sh(
-                                returnStdout: true,
+                        env.check_result = sh(
+                                returnStatus: true,
                                 script: 'node policy_check_script.js'
                             )
-                        if (params.ABORT_ON_POLICY_FAILURE && check_result != 0) {
+                        if (params.ABORT_ON_POLICY_FAILURE && check_result != '0') {
                             currentBuild.result = "FAILURE"
                         }
                     }catch(e){
@@ -122,7 +122,10 @@ pipeline {
         }
         stage('Jira Issue'){
             when {
-                expression { params.CREATE_JIRA_ISSUE == true }
+               allOf {
+                   expression { params.CREATE_JIRA_ISSUE == true }
+                   expression { env.check_result != '0'}
+               }
             }
             steps {
               withCredentials([usernamePassword(credentialsId: 'jira-token',usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {

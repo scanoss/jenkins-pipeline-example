@@ -70,7 +70,13 @@ pipeline {
                                   }
             }
         }
-        stage('Process scan results') {
+        stage('Upload Artifacts') {
+            steps {
+                archiveArtifacts artifacts: 'scanoss-results.json', onlyIfSuccessful: true
+
+            }
+        }
+        stage('Process Scan Results') {
             agent {
                 docker {
                      image 'node:20.11.0-alpine3.19' 

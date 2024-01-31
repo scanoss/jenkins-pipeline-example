@@ -47,7 +47,7 @@ pipeline {
         }
         stage('Delta') {
             when {
-                   expression { params.ENABLE_DELTA_ANALYSIS == true }
+                expression { params.ENABLE_DELTA_ANALYSIS == true }
             }
             steps {
                 script {
@@ -118,9 +118,11 @@ pipeline {
                 }
             }
             steps {
-                
-                withCredentials([string(credentialsId: params.SCANOSS_API_TOKEN_ID , variable: 'SCANOSS_API_TOKEN')]) {
-                    dir('repository') {
+               script {
+                  env.SCAN_FOLDER = params.ENABLE_DELTA_ANALYSIS ? 'delta' : 'repository'
+               }
+               withCredentials([string(credentialsId: params.SCANOSS_API_TOKEN_ID , variable: 'SCANOSS_API_TOKEN')]) {
+                    dir("${SCAN_FOLDER}") {
                         script {
 
                             sh '''

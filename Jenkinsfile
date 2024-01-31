@@ -6,6 +6,8 @@ pipeline {
         string(name: 'SCANOSS_SBOM_IDENTIFY', defaultValue:"sbom.json", description: 'SCANOSS SBOM Identify filename')
         
         string(name: 'SCANOSS_SBOM_IGNORE', defaultValue:"sbom-ignore.json", description: 'SCANOSS SBOM Ignore filename')
+
+        booleanParam(name: 'ENABLE_DELTA_ANALYSIS', defaultValue: true, description: 'Analyze those files what have changed or new ones')
         
         // JIRA Variables
         string(name: 'JIRA_URL', defaultValue:"https://scanoss.atlassian.net/" , description: 'Jira URL')
@@ -40,6 +42,67 @@ pipeline {
                         echo command
                         def response = sh(script: command, returnStdout: true).trim()
                     }
+                }
+            }
+        }
+        stage('Delta') {
+            when {
+                   expression { params.ENABLE_DELTA_ANALYSIS == true }
+            }
+            steps {
+                script {
+                    // Parse the JSON payload
+                    def payloadJson = readJSON text: env.payload
+
+                    def commits = payloadJson.commits
+
+                    // Define the destination folder
+                    def destinationFolder = "${env.WORKSPACE}/delta"
+
+                     // Define a set to store unique file names
+                    def uniqueFileNames = new HashSet()
+
+                    // Remove the destination folder if it exists
+                    sh "rm -rf ${destinationFolder}"
+
+                     // Create the destination folder if it doesn't exist
+                    sh "mkdir -p ${destinationFolder}"
+
+
+                        // Iterate over each commit
+                        commits.each { commit ->
+
+
+                            // Modified files
+                            commit.modified.each { fileName ->
+                                // Trim any leading or trailing whitespaces
+                                fileName = fileName.trim()
+
+                                uniqueFileNames.add(fileName)
+                            }
+
+                            // New files added
+                            commit.added.each { fileName ->
+                                 // Trim any leading or trailing whitespaces
+                                fileName = fileName.trim()
+
+                                uniqueFileNames.add(fileName)
+
+                            }
+                        }
+                    dir('repository'){
+                        uniqueFileNames.each { file ->
+
+                               // Construct the source and destination paths
+                                    def sourcePath = "${file}"
+                                    def destinationPath = "${destinationFolder}"
+
+                                    // Copy the file
+                                   sh "cp --parents ${sourcePath} ${destinationPath}"
+
+                        }
+                    }
+
                 }
             }
         }

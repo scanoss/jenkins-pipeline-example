@@ -1,116 +1,55 @@
 pipeline {
-    parameters {
-        // SCAN Variables
-        string(name: 'SCANOSS_API_TOKEN_ID', defaultValue:"scanoss-token", description: 'The reference ID for the SCANOSS API TOKEN credential')
-        
-        string(name: 'SCANOSS_SBOM_IDENTIFY', defaultValue:"sbom.json", description: 'SCANOSS SBOM Identify filename')
-        
-        string(name: 'SCANOSS_SBOM_IGNORE', defaultValue:"sbom-ignore.json", description: 'SCANOSS SBOM Ignore filename')
-
-        booleanParam(name: 'ENABLE_DELTA_ANALYSIS', defaultValue: true, description: 'Analyze those files what have changed or new ones')
-        
-        // JIRA Variables
-        string(name: 'JIRA_URL', defaultValue:"https://scanoss.atlassian.net/" , description: 'Jira URL')
-        
-        string(name: 'JIRA_PROJECT_KEY', defaultValue:"TESTPROJ" , description: 'Jira Project Key')
-                
-        booleanParam(name: 'CREATE_JIRA_ISSUE', defaultValue: true, description: 'Enable Jira reporting')
-        
-        booleanParam(name: 'ABORT_ON_POLICY_FAILURE', defaultValue: false, description: 'Abort Pipeline on pipeline Failure')
-        
-    }
     agent any
-      stages {
-        stage('Git Checkout') {
-            steps {
-                script {
-                    dir('repository') {
-                        git branch: 'main',
-                            credentialsId: 'gh-token',
-                            url: 'https://github.com/scanoss/integration-test'
-                    }
-                        
-                }
-            }
-        }
-        stage('Policy setup') {
-            steps {
-                //TODO: Remove credential when policies are public
-                withCredentials([string(credentialsId: 'policy-token' , variable: 'SCANOSS_POLICY_TOKEN')]) {
-                    script {
-                        def command = 'curl -H "Authorization: Bearer $SCANOSS_POLICY_TOKEN" --fail -L -o policy_check_script.js https://raw.githubusercontent.com/scanoss/jenkins-pipeline-example/main/copyleft-policy.js'
-                        echo command
-                        def response = sh(script: command, returnStdout: true).trim()
-                    }
-                }
-            }
-        }
-        stage('Delta') {
-            when {
-                expression { params.ENABLE_DELTA_ANALYSIS == true }
-            }
-            steps {
-                script {
-                    // Parse the JSON payload
-                    def payloadJson = readJSON text: env.payload
 
-                    def commits = payloadJson.commits
+    parameters {
 
-                    // Define the destination folder
-                    def destinationFolder = "${env.WORKSPACE}/delta"
-
-                     // Define a set to store unique file names
-                    def uniqueFileNames = new HashSet()
-
-                    // Remove the destination folder if it exists
-                    sh "rm -rf ${destinationFolder}"
-
-                     // Create the destination folder if it doesn't exist
-                    sh "mkdir -p ${destinationFolder}"
+        string(name: 'SCANOSS_API_TOKEN_ID', defaultValue:"scanoss-token", description: 'The reference ID for the SCANOSS API TOKEN credential')
+        string(name: 'SCANOSS_CLI_DOCKER_IMAGE', defaultValue:"ghcr.io/scanoss/scanoss-py-base:v1.19.4", description: 'SCANOSS CLI Docker Image')
+        string(name: 'SCANOSS_API_URL', defaultValue:"https://api.osskb.org/scan/direct", description: 'SCANOSS API URL (optional - default: https://api.osskb.org/scan/direct)')
 
 
-                        // Iterate over each commit
-                        commits.each { commit ->
+        booleanParam(name: 'SKIP_SNIPPET', defaultValue: false, description: 'Skip the generation of snippets.')
+        booleanParam(name: 'SCANOSS_SETTINGS', defaultValue: true, description: 'Settings file to use for scanning.')
+        string(name: 'SETTINGS_FILE_PATH', defaultValue: 'scanoss.json', description: 'SCANOSS settings file path.')
+
+        // Dependencies
+        booleanParam(name: 'DEPENDENCY_ENABLED', defaultValue: false, description: 'Scan dependencies (optional - default false).')
+        string(name: 'DEPENDENCY_SCOPE', defaultValue: '', description: 'Gets development or production dependencies (scopes - prod|dev)')
+        string(name: 'DEPENDENCY_SCOPE_INCLUDE', defaultValue: '', description: 'Custom list of dependency scopes to be included. Provide scopes as a comma-separated list.')
+        string(name: 'DEPENDENCY_SCOPE_EXCLUDE', defaultValue: '', description: 'Custom list of dependency scopes to be excluded. Provide scopes as a comma-separated list.')
+
+        // Copyleft licenses
+        string(name: 'LICENSES_COPYLEFT_INCLUDE', defaultValue: 'MIT', description: 'List of Copyleft licenses to append to the default list. Provide licenses as a comma-separated list.')
+        string(name: 'LICENSES_COPYLEFT_EXCLUDE', defaultValue: '', description: 'List of Copyleft licenses to remove from default list. Provide licenses as a comma-separated list.')
+        string(name: 'LICENSES_COPYLEFT_EXPLICIT', defaultValue: '', description: 'Explicit list of Copyleft licenses to consider. Provide licenses as a comma-separated list.')
 
 
-                            // Modified files
-                            commit.modified.each { fileName ->
-                                // Trim any leading or trailing whitespaces
-                                fileName = fileName.trim()
+        string(name: 'JIRA_CREDENTIALS', defaultValue:"jira-credentials" , description: 'Jira credentials')
+        string(name: 'JIRA_URL', defaultValue:"https://scanoss.atlassian.net/" , description: 'Jira URL')
+        string(name: 'JIRA_PROJECT_KEY', defaultValue:"TESTPROJ" , description: 'Jira Project Key')
+        booleanParam(name: 'CREATE_JIRA_ISSUE', defaultValue: true, description: 'Enable Jira reporting')
+        booleanParam(name: 'ABORT_ON_POLICY_FAILURE', defaultValue: false, description: 'Abort Pipeline on pipeline Failure')
+    }
 
-                                uniqueFileNames.add(fileName)
-                            }
+    environment {
 
-                            // New files added
-                            commit.added.each { fileName ->
-                                 // Trim any leading or trailing whitespaces
-                                fileName = fileName.trim()
+        // Artifact file names
+        SCANOSS_COPYLEFT_REPORT_MD = "scanoss-copyleft-report.md"
+        SCANOSS_UNDECLARED_REPORT_MD = "scanoss-undeclared-report.md"
+        SCANOSS_RESULTS_OUTPUT_FILE_NAME = "results.json"
 
-                                uniqueFileNames.add(fileName)
 
-                            }
-                        }
-                    dir('repository'){
-                        uniqueFileNames.each { file ->
+        // Markdwon Jira report file names
+        SCANOSS_COPYLEFT_JIRA_REPORT_MD = "scanoss-copyleft-jira_report.md"
+        SCANOSS_UNDECLARED_JIRA_REPORT_MD = "scanoss-undeclared-components-jira-report.md"
+    }
 
-                               // Construct the source and destination paths
-                                    def sourcePath = "${file}"
-                                    def destinationPath = "${destinationFolder}"
-
-                                    // Copy the file
-                                   sh "cp --parents ${sourcePath} ${destinationPath}"
-
-                        }
-                    }
-
-                }
-            }
-        }
-        stage('Scan') {
+    stages {
+        stage('SCANOSS') {
             agent {
                 docker {
-                    image 'ghcr.io/scanoss/scanoss-py:v1.9.0'
-                    args '--entrypoint='
+                    image params.SCANOSS_CLI_DOCKER_IMAGE
+                    args '-u root'
                     // Run the container on the node specified at the
                     // top-level of the Pipeline, in the same workspace,
                     // rather than on a new node entirely:
@@ -119,127 +58,337 @@ pipeline {
             }
             steps {
                script {
-                  env.SCAN_FOLDER = params.ENABLE_DELTA_ANALYSIS ? 'delta' : 'repository'
-               }
-               withCredentials([string(credentialsId: params.SCANOSS_API_TOKEN_ID , variable: 'SCANOSS_API_TOKEN')]) {
-                    dir("${SCAN_FOLDER}") {
-                        script {
-
-                            sh '''
-
-                            SBOM_IDENTIFY=""
-                            if [ -f $SCANOSS_SBOM_IDENTIFY ]; then SBOM_IDENTIFY="--identify $SCANOSS_SBOM_IDENTIFY" ; fi
-
-                            SBOM_IGNORE=""
-                            if [ -f $SCANOSS_SBOM_IGNORE ]; then SBOM_IGNORE="--ignore $SCANOSS_SBOM_IGNORE" ; fi
+                   // Policies status
+                   env.COPYLEFT_POLICY_STATUS = '0'
+                   env.UNDECLARED_POLICY_STATUS = '0'
+                                       // Get the build number and job name
+                   def buildNumber = env.BUILD_NUMBER
+                   def pipelineName = env.JOB_NAME
 
 
-                            CUSTOM_URL=""
-                            if [ ! -z $SCANOSS_API_URL ]; then CUSTOM_URL="--apiurl $SCANOSS_API_URL"; else CUSTOM_URL="--apiurl https://osskb.org/api/scan/direct" ; fi
+                   scan()
+                   copyleftPolicyCheck()
+                   undeclaredComponentsPolicyCheck()
+                   echo "Copyleft STATUS ${env.COPYLEFT_POLICY_STATUS}"
+                   echo "undeclared Components STATUS ${env.UNDECLARED_POLICY_STATUS}"
 
-                            CUSTOM_TOKEN=""
-                            if [ ! -z $SCANOSS_API_TOKEN ]; then CUSTOM_TOKEN="--key $SCANOSS_API_TOKEN" ; fi
+                    // Create Jira issues if enabled
+                    if (params.CREATE_JIRA_ISSUE) {
+                        echo "Create Jira Issue: ENABLED"
 
+                        if (env.COPYLEFT_POLICY_STATUS == '1') {
+                            createJiraMarkdownCopyleftReport()
+                            createJiraTicket("Copyleft licenses found - ${pipelineName}/${buildNumber}", env.SCANOSS_COPYLEFT_JIRA_REPORT_MD)
+                        }
 
-                            scanoss-py scan $CUSTOM_URL $CUSTOM_TOKEN $SBOM_IDENTIFY $SBOM_IGNORE --output ../scanoss-results.json .
-                            '''
+                        if (env.UNDECLARED_POLICY_STATUS == '1') {
+                            createJiraMarkdownUndeclaredComponentReport()
+                            createJiraTicket("Undeclared components found - ${pipelineName}/${buildNumber}", env.SCANOSS_UNDECLARED_JIRA_REPORT_MD)
                         }
                     }
+
+
+                   // Set build status based on policies
+                   if (env.COPYLEFT_POLICY_STATUS == '1' || env.UNDECLARED_POLICY_STATUS == '1') {
+                       currentBuild.result = 'UNSTABLE'
+                   }
                 }
             }
-        }
-        stage('Upload Artifacts') {
-            steps {
-                archiveArtifacts artifacts: 'scanoss-results.json', onlyIfSuccessful: true
 
-            }
         }
-        stage('Process Scan Results') {
-            agent {
-                docker {
-                     image 'node:20.11.0-alpine3.19' 
-                     reuseNode true
-                }
-            }
-            steps { 
-                script {
-                    try{                            
-                        env.check_result = sh(
-                                returnStatus: true,
-                                script: 'node policy_check_script.js'
-                            )
-                        if (params.ABORT_ON_POLICY_FAILURE && check_result != '0') {
-                            currentBuild.result = "FAILURE"
-                        }
-                    }catch(e){
-                        echo e.getMessage()
-                        if (params.ABORT_ON_POLICY_FAILURE) {
-                            currentBuild.result = "FAILURE"
-                        }                
-                    }
-                }
-            }
-        }
-        stage('Publish CSV Reports') {
-            steps {
-                publishReport name: "Scan Results", displayType: "dual", provider: csv(id: "report-summary", pattern: "data.csv")
-            }
-        }
-        stage('Jira Issue'){
-            when {
-               allOf {
-                   expression { params.CREATE_JIRA_ISSUE == true }
-                   expression { env.check_result != '0'}
-               }
-            }
-            steps {
-              withCredentials([usernamePassword(credentialsId: 'jira-token',usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
-                    script {
-                       
-                        def copyLeft = sh(script: "tail -n +2 data.csv | cut -d',' -f1", returnStdout: true)
-                        
-                        copyLeft = copyLeft +  "\n${BUILD_URL}"
-                            
-                        def JSON_PAYLOAD =  [
-                             fields : [
-                                project : [
-                                    key: params.JIRA_PROJECT_KEY
-                                ],
-                                summary : 'Components with Copyleft licenses found',
-                                description: copyLeft,
-                                issuetype: [
-                                    name: 'Bug'
-                                ]
-                            ]
-                        ]
-    
-                        def jsonString = groovy.json.JsonOutput.toJson(JSON_PAYLOAD)
-                        
-                        createJiraIssue(PASSWORD, USERNAME, params.JIRA_URL, jsonString)
-                    }
-              }
-              
-           }
-        }
-    }    
-        
-}    
+    }
+}
 
-def createJiraIssue(jiraToken, jiraUsername, jiraAPIEndpoint, payload) {
-    env.TOKEN = jiraToken
-    env.USER = jiraUsername
-    env.JIRA_ENDPOINT_URL = jiraAPIEndpoint + '/rest/api/2/issue/'
-    env.PAYLOAD = payload
+def createJiraMarkdownUndeclaredComponentReport() {
+        script {
+        def cmd = [
+            'scanoss-py',
+            'insp',
+            'undeclared',
+            '--input',
+            env.SCANOSS_RESULTS_OUTPUT_FILE_NAME,
+            '--output',
+            'scanoss-undeclared-components-jira.md',
+            '--status',
+            'scanoss-undeclared-status-jira.md',
+            '-f',
+            'jira_md']
 
-    try {
-        def command = """
-            curl -u '${USER}:${TOKEN}' -X POST --data '${PAYLOAD}' -H 'Content-Type: application/json' '${JIRA_ENDPOINT_URL}' 
-        """
+        def exitCode = sh(
+            script: cmd.join(' '),
+            returnStatus: true
+        )
 
-        def response = sh(script: command, returnStdout: true).trim()
-        echo "Response: ${response}"
- 
-    } catch (Exception e) {
-        echo e
+        if (exitCode == 0) {
+            sh """
+                # Start with components file
+                cat scanoss-undeclared-components-jira.md scanoss-undeclared-status-jira.md > "${env.SCANOSS_UNDECLARED_JIRA_REPORT_MD}"
+
+                # Show final result
+                echo "\n=== Final Combined Content ==="
+                cat "${env.SCANOSS_UNDECLARED_JIRA_REPORT_MD}"
+
+                chmod 644 "${env.SCANOSS_UNDECLARED_JIRA_REPORT_MD}"
+            """
+        }
+    }
+}
+
+def createJiraMarkdownCopyleftReport(){
+        script {
+        def cmd = [
+            'scanoss-py',
+            'insp',
+            'copyleft',
+            '--input',
+            env.SCANOSS_RESULTS_OUTPUT_FILE_NAME,
+            '--output',
+            env.SCANOSS_COPYLEFT_JIRA_REPORT_MD,
+            '-f',
+            'jira_md']
+
+        // Copyleft licenses
+        cmd.addAll(buildCopyleftArgs())
+
+        def exitCode = sh(
+            script: cmd.join(' '),
+            returnStatus: true
+        )
+
+    }
+}
+
+
+def undeclaredComponentsPolicyCheck() {
+    script {
+        def cmd = [
+            'scanoss-py',
+            'insp',
+            'undeclared',
+            '--input',
+            env.SCANOSS_RESULTS_OUTPUT_FILE_NAME,
+            '--output',
+            'scanoss-undeclared-components.md',
+            '--status',
+            'scanoss-undeclared-status.md',
+            '-f',
+            'md']
+
+        def exitCode = sh(
+            script: cmd.join(' '),
+            returnStatus: true
+        )
+
+        if (exitCode == 1) {
+            echo "No Undeclared components were found"
+        } else {
+            echo "Undeclared Components were found"
+            env.UNDECLARED_POLICY_STATUS = '1'
+            sh """
+                # Start with components file
+                cat scanoss-undeclared-components.md > "${env.SCANOSS_UNDECLARED_REPORT_MD}"
+
+                # Append status file
+                cat scanoss-undeclared-status.md >> "${env.SCANOSS_UNDECLARED_REPORT_MD}"
+
+                # Show final result
+                echo "\n=== Final Combined Content ==="
+                cat "${env.SCANOSS_UNDECLARED_REPORT_MD}"
+
+                chmod 644 "${env.SCANOSS_UNDECLARED_REPORT_MD}"
+            """
+             uploadArtifact(env.SCANOSS_UNDECLARED_REPORT_MD)
+
+
+        }
+    }
+}
+
+def copyleftPolicyCheck() {
+    script {
+        def cmd = [
+            'scanoss-py',
+            'insp',
+            'copyleft',
+            '--input',
+            env.SCANOSS_RESULTS_OUTPUT_FILE_NAME,
+            '--output',
+            env.SCANOSS_COPYLEFT_REPORT_MD,
+            '-f',
+            'md']
+
+        // Copyleft licenses
+        cmd.addAll(buildCopyleftArgs())
+
+        def exitCode = sh(
+            script: cmd.join(' '),
+            returnStatus: true
+        )
+
+        if (exitCode == 1) {
+            echo "No copyleft licenses were found"
+        } else {
+            echo "Copyleft Licenses were found"
+            env.COPYLEFT_POLICY_STATUS = '1'
+            uploadArtifact(env.SCANOSS_COPYLEFT_REPORT_MD)
+        }
+    }
+}
+
+def scan() {
+    withCredentials([string(credentialsId: params.SCANOSS_API_TOKEN_ID, variable: 'SCANOSS_API_TOKEN')]) {
+        script {
+            def cmd = []
+            cmd << "scanoss-py scan"
+
+            // Add target directory
+            cmd << "."
+
+            // Add API URL
+            cmd << "--apiurl ${SCANOSS_API_URL}"
+
+            // Add API token if available
+            if (env.SCANOSS_API_TOKEN) {
+                cmd << "--key ${SCANOSS_API_TOKEN}"
+            }
+
+            // Skip Snippet
+            if (env.SKIP_SNIPPET == 'true') {
+               cmd << "-S"
+            }
+
+            // Settings
+            if (env.SCANOSS_SETTINGS == 'true') {
+               cmd << "--settings ${env.SETTINGS_FILE_PATH}"
+            } else {
+               cmd << "-stf"
+            }
+
+           // Dependency Scope
+            if (env.DEPENDENCY_ENABLED == 'true') {
+               cmd << buildDependencyScopeArgs()
+            }
+
+            // Add output file
+            cmd << "--output ${env.SCANOSS_RESULTS_OUTPUT_FILE_NAME}"
+
+            // Execute command
+            def exitCode = sh(
+                script: cmd.join(' '),
+                returnStatus: true
+            )
+
+            if (exitCode != 0) {
+                echo "Warning: Scan failed with exit code ${exitCode}"
+            }
+
+            uploadArtifact(env.SCANOSS_RESULTS_OUTPUT_FILE_NAME)
+        }
+    }
+}
+
+def uploadArtifact(artifactPath) {
+    archiveArtifacts artifacts: artifactPath, onlyIfSuccessful: true
+}
+
+def List<String> buildDependencyScopeArgs() {
+    def dependencyScopeInclude = params.DEPENDENCY_SCOPE_INCLUDE
+    def dependencyScopeExclude = params.DEPENDENCY_SCOPE_EXCLUDE
+    def dependencyScope = params.DEPENDENCY_SCOPE
+
+    // Count the number of non-empty values
+    def setScopes = [dependencyScopeInclude, dependencyScopeExclude, dependencyScope].findAll {
+        it != '' && it != null
+    }
+
+    if (setScopes.size() > 1) {
+        core.error('Only one dependency scope filter can be set')
+    }
+
+    if (dependencyScopeExclude && dependencyScopeExclude != '') {
+        return ['--dep-scope-exc', dependencyScopeExclude]
+    }
+    if (dependencyScopeInclude && dependencyScopeInclude != '') {
+        return ['--dep-scope-inc',dependencyScopeInclude]
+    }
+    if (dependencyScope && dependencyScope == 'prod') {
+        return ['--dep-scope', 'prod']
+    }
+    if (dependencyScope && dependencyScope == 'dev') {
+        return ['--dep-scope', 'dev']
+    }
+
+    return ''
+}
+
+def List<String> buildCopyleftArgs() {
+    if (params.LICENSES_COPYLEFT_EXPLICIT != '') {
+        println "Explicit copyleft licenses: ${params.LICENSES_COPYLEFT_EXPLICIT}"
+        return ['--explicit', params.LICENSES_COPYLEFT_EXPLICIT]
+    }
+    if (params.LICENSES_COPYLEFT_INCLUDE != '') {
+        println "Included copyleft licenses: ${params.LICENSES_COPYLEFT_INCLUDE}"
+        return ['--include', params.LICENSES_COPYLEFT_INCLUDE]
+    }
+    if (params.LICENSES_COPYLEFT_EXCLUDE != '') {
+        println "Excluded copyleft licenses: ${params.LICENSES_COPYLEFT_EXCLUDE}"
+        return ['--exclude', params.LICENSES_COPYLEFT_EXCLUDE]
+    }
+    return []
+}
+
+def createJiraTicket(String title, String filePath) {
+    def jiraEndpoint = "${params.JIRA_URL}/rest/api/2/issue/"
+
+    withCredentials([usernamePassword(credentialsId: params.JIRA_CREDENTIALS,
+                    usernameVariable: 'JIRA_USER',
+                    passwordVariable: 'JIRA_TOKEN')]) {
+        try {
+            // Read file content
+            def fileContent = ""
+            if (fileExists(filePath)) {
+                fileContent = readFile(file: filePath)
+            } else {
+                error "File ${filePath} not found"
+            }
+            def buildUrl = env.BUILD_URL
+            echo "FILE CONTENT: ${fileContent}"
+            def cleanContent = fileContent
+            .replace('\\n', '\n')
+            .replace('\\"', '"') // Remove escaped quote
+            .replace('\\', '') // Remove any remaining backslashes
+            def content = fileContent + "\nMore details can be found: ${buildUrl}"
+
+            echo "CLEAN CONTENT: ${content}"
+
+            // Prepare JIRA ticket payload
+            def payload = [
+                fields: [
+                    project: [key: params.JIRA_PROJECT_KEY],
+                    summary: title,
+                    description: content,
+                    issuetype: [name: 'Bug']
+                ]
+            ]
+
+            def jsonString = groovy.json.JsonOutput.toJson(payload)
+            echo "JSON STRING: ${jsonString}"
+
+            def response = sh(
+                script: '''
+                    curl -s -u $JIRA_USER:$JIRA_TOKEN \
+                        -X POST \
+                        -H 'Content-Type: application/json' \
+                        -d ''' + "'${jsonString}' " + "'${jiraEndpoint}'",
+                returnStdout: true
+            ).trim()
+
+            echo "JIRA ticket created successfully"
+            return response
+
+        } catch (Exception e) {
+            echo "Failed to create JIRA ticket: ${e.message}"
+            error "JIRA ticket creation failed"
+        }
     }
 }

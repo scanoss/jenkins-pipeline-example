@@ -1,6 +1,7 @@
 const  fs =  require('node:fs/promises');
 
 
+
 async function main() {
    const scanResults =  await fs.readFile(`${__dirname}/scanoss-results.json`, { encoding: 'utf-8' });
    const results = JSON.parse(scanResults);

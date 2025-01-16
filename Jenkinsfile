@@ -238,7 +238,7 @@ def scan() {
             cmd << "."
 
             // Add API URL
-            cmd << "--apiurl ${SCANOSS_API_URL}"
+            cmd << "--apiurl ${params.SCANOSS_API_URL}"
 
             // Add API token if available
             if (env.SCANOSS_API_TOKEN) {

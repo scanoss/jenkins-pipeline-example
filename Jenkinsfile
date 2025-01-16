@@ -53,6 +53,7 @@ pipeline {
                     // top-level of the Pipeline, in the same workspace,
                     // rather than on a new node entirely:
                     reuseNode true
+                    args '-u root:root' // Run as root to avoid permission issues
                 }
             }
             steps {
@@ -231,6 +232,11 @@ def copyleftPolicyCheck() {
 def scan() {
     withCredentials([string(credentialsId: params.SCANOSS_API_TOKEN_ID, variable: 'SCANOSS_API_TOKEN')]) {
         script {
+
+            // Add execute permission for scanoss-py
+
+            sh 'chmod +x $(which scanoss-py)'
+
             def cmd = []
             cmd << "scanoss-py scan"
 
@@ -281,7 +287,11 @@ def scan() {
 }
 
 def uploadArtifact(artifactPath) {
-    archiveArtifacts artifacts: artifactPath, onlyIfSuccessful: true
+    if (fileExists(artifactPath)) {
+        archiveArtifacts artifacts: artifactPath, onlyIfSuccessful: true
+    } else{
+        echo "Warning: Artifact ${artifactPatch} not found"
+    }
 }
 
 def List<String> buildDependencyScopeArgs() {

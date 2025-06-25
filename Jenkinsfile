@@ -4,7 +4,7 @@ pipeline {
     parameters {
 
         string(name: 'SCANOSS_API_TOKEN_ID', defaultValue:"scanoss-token", description: 'The reference ID for the SCANOSS API TOKEN credential')
-        string(name: 'SCANOSS_CLI_DOCKER_IMAGE', defaultValue:"ghcr.io/scanoss/scanoss-py-jenkins:v1.19.5", description: 'SCANOSS CLI Docker Image')
+        string(name: 'SCANOSS_CLI_DOCKER_IMAGE', defaultValue:"ghcr.io/scanoss/scanoss-py-jenkins:v1.26.2", description: 'SCANOSS CLI Docker Image')
         string(name: 'SCANOSS_API_URL', defaultValue:"https://api.osskb.org/scan/direct", description: 'SCANOSS API URL (optional - default: https://api.osskb.org/scan/direct)')
 
 
@@ -19,16 +19,22 @@ pipeline {
         string(name: 'DEPENDENCY_SCOPE_EXCLUDE', defaultValue: '', description: 'Custom list of dependency scopes to be excluded. Provide scopes as a comma-separated list.')
 
         // Copyleft licenses
-        string(name: 'LICENSES_COPYLEFT_INCLUDE', defaultValue: 'MIT', description: 'List of Copyleft licenses to append to the default list. Provide licenses as a comma-separated list.')
+        string(name: 'LICENSES_COPYLEFT_INCLUDE', defaultValue: '', description: 'List of Copyleft licenses to append to the default list. Provide licenses as a comma-separated list.')
         string(name: 'LICENSES_COPYLEFT_EXCLUDE', defaultValue: '', description: 'List of Copyleft licenses to remove from default list. Provide licenses as a comma-separated list.')
         string(name: 'LICENSES_COPYLEFT_EXPLICIT', defaultValue: '', description: 'Explicit list of Copyleft licenses to consider. Provide licenses as a comma-separated list.')
 
-
+        // Jira
         string(name: 'JIRA_CREDENTIALS', defaultValue:"jira-credentials" , description: 'Jira credentials')
         string(name: 'JIRA_URL', defaultValue:"https://scanoss.atlassian.net/" , description: 'Jira URL')
         string(name: 'JIRA_PROJECT_KEY', defaultValue:"TESTPROJ" , description: 'Jira Project Key')
         booleanParam(name: 'CREATE_JIRA_ISSUE', defaultValue: true, description: 'Enable Jira reporting')
         booleanParam(name: 'ABORT_ON_POLICY_FAILURE', defaultValue: false, description: 'Abort Pipeline on pipeline Failure')
+
+        // Policies setup
+        booleanParam(name: 'ABORT_ON_POLICY_FAILURE', defaultValue: false, description: 'Abort Pipeline on pipeline Failure')
+
+        // Debug
+        booleanParam(name: 'DEBUG', defaultValue: false , description: 'Enable debugging')
     }
 
     environment {
@@ -39,7 +45,7 @@ pipeline {
         SCANOSS_RESULTS_OUTPUT_FILE_NAME = "results.json"
 
 
-        // Markdwon Jira report file names
+        // Markdown Jira report file names
         SCANOSS_COPYLEFT_JIRA_REPORT_MD = "scanoss-copyleft-jira_report.md"
         SCANOSS_UNDECLARED_JIRA_REPORT_MD = "scanoss-undeclared-components-jira-report.md"
     }
@@ -60,7 +66,8 @@ pipeline {
                    // Policies status
                    env.COPYLEFT_POLICY_STATUS = '0'
                    env.UNDECLARED_POLICY_STATUS = '0'
-                                       // Get the build number and job name
+
+                   // Get the build number and job name
                    def buildNumber = env.BUILD_NUMBER
                    def pipelineName = env.JOB_NAME
 
@@ -123,10 +130,6 @@ def createJiraMarkdownUndeclaredComponentReport() {
                 # Start with components file
                 cat scanoss-undeclared-components-jira.md scanoss-undeclared-status-jira.md > "${env.SCANOSS_UNDECLARED_JIRA_REPORT_MD}"
 
-                # Show final result
-                echo "\n=== Final Combined Content ==="
-                cat "${env.SCANOSS_UNDECLARED_JIRA_REPORT_MD}"
-
                 chmod 644 "${env.SCANOSS_UNDECLARED_JIRA_REPORT_MD}"
             """
         }
@@ -149,6 +152,11 @@ def createJiraMarkdownCopyleftReport(){
         // Copyleft licenses
         cmd.addAll(buildCopyleftArgs())
 
+        // Debug
+        if(params.DEBUG) {
+            cmd << "--debug"
+        }
+
         def exitCode = sh(
             script: cmd.join(' '),
             returnStatus: true
@@ -170,6 +178,11 @@ def undeclaredComponentsPolicyCheck() {
             'scanoss-undeclared-status.md',
             '-f',
             'md']
+
+        // Debug
+        if(params.DEBUG) {
+            cmd << "--debug"
+        }
 
         def exitCode = sh(
             script: cmd.join(' '),
@@ -213,6 +226,11 @@ def copyleftPolicyCheck() {
         // Copyleft licenses
         cmd.addAll(buildCopyleftArgs())
 
+        // Debug
+        if(params.DEBUG) {
+            cmd << "--debug"
+        }
+
         def exitCode = sh(
             script: cmd.join(' '),
             returnStatus: true
@@ -238,32 +256,37 @@ def scan() {
             cmd << "."
 
             // Add API URL
-            cmd << "--apiurl ${SCANOSS_API_URL}"
+            cmd << "--apiurl ${params.SCANOSS_API_URL}"
 
             // Add API token if available
-            if (env.SCANOSS_API_TOKEN) {
+            if(env.SCANOSS_API_TOKEN) {
                 cmd << "--key ${SCANOSS_API_TOKEN}"
             }
 
             // Skip Snippet
-            if (env.SKIP_SNIPPET == 'true') {
+            if(params.SKIP_SNIPPET) {
                cmd << "-S"
             }
 
             // Settings
-            if (env.SCANOSS_SETTINGS == 'true') {
-               cmd << "--settings ${env.SETTINGS_FILE_PATH}"
+            if(params.SCANOSS_SETTINGS) {
+               cmd << "--settings ${params.SETTINGS_FILE_PATH}"
             } else {
                cmd << "-stf"
             }
 
            // Dependency Scope
-            if (env.DEPENDENCY_ENABLED == 'true') {
+            if(params.DEPENDENCY_ENABLED) {
                cmd << buildDependencyScopeArgs()
             }
 
             // Add output file
             cmd << "--output ${env.SCANOSS_RESULTS_OUTPUT_FILE_NAME}"
+
+            // Debug
+            if(params.DEBUG) {
+                cmd << "--debug"
+            }
 
             // Execute command
             def exitCode = sh(

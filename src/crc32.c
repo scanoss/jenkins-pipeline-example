@@ -20,6 +20,8 @@
   produced, so that this one source file can be compiled to an executable.
  */
 
+
+
 #ifdef MAKECRCH
 #  include <stdio.h>
 #  ifndef DYNAMIC_CRC_TABLE
